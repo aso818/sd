@@ -1,1 +1,261 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>FBOM تشفير وفك</title>
+<style>
+body{font-family:system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial;background:#071223;color:#e6eef8;margin:0;padding:22px}
+.wrap{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:1fr 380px;gap:18px}
+.card{background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,0.04)}
+h1,h2{margin:0 0 6px}
+.muted{color:#9fb2c8;font-size:13px}
+textarea,input,select{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:rgba(0,0,0,0.35);color:#dbeafe;font-family:ui-monospace,monospace}
+textarea{resize:vertical}
+.row{display:flex;gap:8px}
+.btn{padding:8px 12px;border-radius:8px;background:linear-gradient(90deg,#7f5af0,#3ac3ff);border:0;color:#021026;font-weight:700;cursor:pointer}
+.btn.ghost{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--text)}
+.output{white-space:pre-wrap;background:rgba(0,0,0,0.3);padding:10px;border-radius:8px;min-height:120px;color:#cfe9ff;border:1px solid rgba(255,255,255,0.02);overflow:auto}
+label{font-size:13px;color:#9fb2c8}
+footer{grid-column:1/-1;text-align:center;color:#9fb2c8;margin-top:12px;font-size:13px}
+.home{display:flex;flex-direction:column;align-items:center;justify-content:center;height:80vh;gap:20px;text-align:center}
+.home h1{font-size:28px}
+@media(max-width:950px){.wrap{grid-template-columns:1fr}.aside{order:2}}
+</style>
+</head>
+<body>
 
+<div id="pageHome" class="home">
+  <h1>مرحباً بك في FBOM</h1>
+  <p>اختر ما تريد القيام به:</p>
+  <div class="row" style="justify-content:center">
+    <button class="btn" onclick="showPage('encrypt')">تشفير</button>
+    <button class="btn" onclick="showPage('decrypt')">فك التشفير</button>
+  </div>
+  <footer>حقوق النشر © شملان البلوي</footer>
+</div>
+
+<div id="pageEncrypt" style="display:none" class="wrap">
+<main class="card">
+<h1>تشفير FBOM ثنائي</h1>
+<div class="muted">إدخل نص Lua أو أي نص لتشفيره.</div>
+
+<div style="margin-top:12px">
+<label>النص للتشفير:</label>
+<textarea id="plaintext" spellcheck="false">print("مرحبا من Lua!")</textarea>
+</div>
+
+<div class="row" style="margin-top:10px">
+<div style="flex:1">
+<label>كلمة المرور</label>
+<input id="password" type="password" placeholder="كلمة مرور قوية">
+</div>
+<div style="width:140px">
+<label>Iterations (PBKDF2)</label>
+<input id="iters" type="number" value="200000" min="1000">
+</div>
+</div>
+
+<div class="row" style="margin-top:12px">
+<button class="btn" id="encryptBtn">تشفير وتنزيل ثنائي</button>
+<button class="btn ghost" id="downloadB64">تنزيل Base64</button>
+<button class="btn ghost" id="showHex">عرض Hex</button>
+<button class="btn ghost" onclick="showPage('home')">العودة للرئيسية</button>
+</div>
+
+<div style="margin-top:12px">
+<label>الناتج / رسائل:</label>
+<div id="out" class="output">لا يوجد.</div>
+</div>
+</main>
+
+<aside class="card aside">
+<h2>فك التشفير</h2>
+<div class="muted">يمكنك رفع ملف FBOM الثنائي أو لصق Base64 لفكه.</div>
+
+<label>رفع ملف (.bin)</label>
+<input id="fileIn" type="file" accept="*/*" style="margin-bottom:8px">
+
+<label>أو الصق Base64 هنا:</label>
+<textarea id="b64in" style="height:120px;margin-top:6px" placeholder="الصق Base64 أو اتركه فارغ"></textarea>
+
+<div class="row" style="margin-top:10px">
+<button class="btn" id="decryptFile">فك التشفير</button>
+<button class="btn ghost" id="clearInputs">مسح الحقول</button>
+</div>
+
+<div style="margin-top:12px">
+<label>الناتج بعد فك التشفير:</label>
+<div id="decOut" class="output">لا شيء مفكَّر بعد.</div>
+</div>
+
+<footer>حقوق النشر © شملان البلوي</footer>
+</aside>
+</div>
+
+<script>
+// ======== صفحة رئيسية ========
+function showPage(page){
+  if(page==='home'){
+    document.getElementById('pageHome').style.display='flex';
+    document.getElementById('pageEncrypt').style.display='none';
+  } else {
+    document.getElementById('pageHome').style.display='none';
+    document.getElementById('pageEncrypt').style.display='grid';
+  }
+}
+
+// ======== Utilities ========
+function log(msg,isErr=false){document.getElementById('out').textContent=msg;document.getElementById('out').style.color=isErr?'#ff7b7b':'#cfe9ff';}
+function bufToBase64(buf){return btoa(String.fromCharCode(...new Uint8Array(buf)));}
+function base64ToBuf(b64){const s=atob(b64);const a=new Uint8Array(s.length);for(let i=0;i<s.length;i++) a[i]=s.charCodeAt(i);return a.buffer;}
+function concatBuffers(buffers){let total=buffers.reduce((s,b)=>s+(b.byteLength||b.length),0);const out=new Uint8Array(total);let offset=0;for(const b of buffers){const chunk=new Uint8Array(b);out.set(chunk, offset);offset+=chunk.byteLength;}return out.buffer;}
+function u32ToBE(n){return new Uint8Array([(n>>>24)&0xFF,(n>>>16)&0xFF,(n>>>8)&0xFF,n&0xFF]);}
+function beToU32(bytes, offset){return (bytes[offset]<<24)|(bytes[offset+1]<<16)|(bytes[offset+2]<<8)|bytes[offset+3];}
+function toHex(buf){const b=new Uint8Array(buf);return Array.from(b).map(x=>x.toString(16).padStart(2,'0')).join(' ');}
+
+// ======== Crypto ========
+async function deriveKey(pass,saltBytes,iterations){
+  const enc=new TextEncoder();
+  const baseKey=await crypto.subtle.importKey('raw', enc.encode(pass), {name:'PBKDF2'}, false, ['deriveKey']);
+  return crypto.subtle.deriveKey({name:'PBKDF2', salt:saltBytes, iterations, hash:'SHA-256'}, baseKey, {name:'AES-GCM', length:256}, false, ['encrypt','decrypt']);
+}
+
+async function encryptToFBOM(plaintext,password,iterations=200000){
+  const enc=new TextEncoder();
+  const plainBuf=enc.encode(plaintext);
+  const salt=crypto.getRandomValues(new Uint8Array(16));
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const key=await deriveKey(password,salt,iterations);
+  const cipherBuf=await crypto.subtle.encrypt({name:'AES-GCM', iv}, key, plainBuf);
+  const header=new Uint8Array([0x46,0x42,0x4F,0x4D,0x16,0x01]);
+  const saltLen=new Uint8Array([salt.byteLength]);
+  const ivLen=new Uint8Array([iv.byteLength]);
+  const cipherLen=u32ToBE(cipherBuf.byteLength);
+  return concatBuffers([header.buffer,saltLen.buffer,salt.buffer,ivLen.buffer,iv.buffer,cipherLen.buffer,cipherBuf]);
+}
+
+async function parseFBOMAndDecrypt(arrayBuffer,password,iterations=200000){
+  const bytes=new Uint8Array(arrayBuffer);
+  if(bytes.length<10) throw new Error('ملف قصير جداً.');
+  if(bytes[0]!==0x46||bytes[1]!==0x42||bytes[2]!==0x4F||bytes[3]!==0x4D) throw new Error('الهيدر لا يبدأ بـ FBOM');
+  let idx=6;
+  const sLen=bytes[idx]; idx+=1;
+  const salt=bytes.slice(idx,idx+sLen); idx+=sLen;
+  const ivLen=bytes[idx]; idx+=1;
+  const iv=bytes.slice(idx,idx+ivLen); idx+=ivLen;
+  const cipherLen=beToU32(bytes, idx); idx+=4;
+  const cipher=bytes.slice(idx,idx+cipherLen);
+  const key=await deriveKey(password,salt,iterations);
+  const plainBuf=await crypto.subtle.decrypt({name:'AES-GCM', iv}, key, cipher);
+  return new TextDecoder().decode(plainBuf);
+}
+
+// ======== Handlers ========
+const plaintextEl=document.getElementById('plaintext');
+const passwordEl=document.getElementById('password');
+const itersEl=document.getElementById('iters');
+const encryptBtn=document.getElementById('encryptBtn');
+const downloadB64=document.getElementById('downloadB64');
+const showHexBtn=document.getElementById('showHex');
+const fileIn=document.getElementById('fileIn');
+const b64in=document.getElementById('b64in');
+const decryptFileBtn=document.getElementById('decryptFile');
+const decOut=document.getElementById('decOut');
+const clearBtn=document.getElementById('clearInputs');
+
+// ======== زر تشفير وتنزيل ثنائي ========
+encryptBtn.addEventListener('click',async()=>{
+  const text=plaintextEl.value; 
+  const pwd=passwordEl.value; 
+  const iters=Math.max(1000,parseInt(itersEl.value||'200000',10));
+  if(!pwd){ log('أدخل كلمة مرور.',true); return; }
+  try{
+    log('جاري التشفير ...'); 
+    const bin=await encryptToFBOM(text,pwd,iters); 
+    downloadBuffer(bin,'fbom_encrypted.bin'); 
+    log('✅ تم التشفير وتنزيل الملف.'); 
+    decOut.textContent='';
+    // مسح البيانات بعد التشفير
+    plaintextEl.value='';
+    passwordEl.value='';
+    log('✅ تم التشفير ومسح النص وكلمة المرور.');
+  }catch(e){log('خطأ: '+(e.message||e),true);}
+});
+
+// ======== زر تنزيل Base64 ========
+downloadB64.addEventListener('click',async()=>{
+  const text=plaintextEl.value; 
+  const pwd=passwordEl.value; 
+  const iters=Math.max(1000,parseInt(itersEl.value||'200000',10));
+  if(!pwd){ log('أدخل كلمة مرور.',true); return; }
+  try{
+    log('جاري التشفير وتحويل Base64 ...'); 
+    const bin=await encryptToFBOM(text,pwd,iters); 
+    const b64=bufToBase64(bin);
+    const blob=new Blob([b64],{type:'text/plain;charset=utf-8'}); 
+    const url=URL.createObjectURL(blob); 
+    const a=document.createElement('a'); a.href=url; a.download='fbom_encrypted.b64.txt'; 
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); 
+    log('✅ تم تنزيل Base64.');
+    // مسح البيانات بعد التشفير
+    plaintextEl.value='';
+    passwordEl.value='';
+    log('✅ تم التشفير ومسح النص وكلمة المرور.');
+  }catch(e){log('خطأ: '+(e.message||e),true);}
+});
+
+// ======== زر عرض Hex ========
+showHexBtn.addEventListener('click',async()=>{
+  const text=plaintextEl.value; 
+  const pwd=passwordEl.value; 
+  const iters=Math.max(1000,parseInt(itersEl.value||'200000',10));
+  if(!pwd){ log('أدخل كلمة مرور.',true); return; }
+  try{
+    const bin=await encryptToFBOM(text,pwd,iters); 
+    log('Hex أول 1000 بايت:\n'+toHex(bin).slice(0,1000));
+    // مسح البيانات بعد التشفير
+    plaintextEl.value='';
+    passwordEl.value='';
+    log('✅ تم التشفير ومسح النص وكلمة المرور.');
+  }catch(e){log('خطأ: '+(e.message||e),true);}
+});
+
+// ======== فك التشفير ========
+decryptFileBtn.addEventListener('click',async()=>{
+  const pwd=passwordEl.value; 
+  const iters=Math.max(1000,parseInt(itersEl.value||'200000',10));
+  if(!pwd){ log('أدخل كلمة مرور لفك التشفير.',true); return; }
+  try{
+    let buf;
+    const b64=(b64in.value||'').trim(); 
+    const f=fileIn.files[0];
+    if(b64){ buf=base64ToBuf(b64); }
+    else if(f){ buf=await f.arrayBuffer(); }
+    else{ log('ارفع ملف أو الصق Base64.',true); return; }
+    log('جاري فك التشفير ...');
+    const plain=await parseFBOMAndDecrypt(buf,pwd,iters);
+    decOut.textContent=plain; 
+    log('✅ تم فك التشفير.');
+  }catch(e){decOut.textContent=''; log('فشل فك التشفير: '+(e.message||e),true);}
+});
+
+// ======== مسح الحقول ========
+clearBtn.addEventListener('click',()=>{fileIn.value=''; b64in.value=''; decOut.textContent='لا شيء مفكَّر بعد.'; log('تم مسح الحقول.');});
+
+// ======== تحميل الملفات ========
+function downloadBuffer(buf,filename){
+  const blob=new Blob([buf],{type:'application/octet-stream'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+</script>
+
+</body>
+</html>
